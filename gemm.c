@@ -6,11 +6,41 @@
 #include <time.h>
 #define N 2048
 #define BLOCK 4
+#define THREADS 4
 float A[N][N];
-// assuming B[n][n] is transposed
 float B[N][N];
 float C[N][N];
 float transposedBlock[N][N];
+
+void *dot(void *arg) {
+  int value = (int)(intptr_t)arg;
+  int start = N / THREADS;
+  for (int by = N / THREADS * value; by < N / THREADS * (value + 1);
+       by += BLOCK) {
+    for (int bx = N / THREADS * value; bx < N / THREADS * (value + 1);
+         bx += BLOCK) {
+      float tc[BLOCK][BLOCK];
+      for (int y = 0; y < BLOCK; y++) {
+        for (int x = 0; x < BLOCK; x++) {
+          float acc = 0;
+          // transposed dot product
+          for (int k = 0; k < N; k++) {
+            acc += A[by + y][k] * transposedBlock[bx + x][k];
+          }
+          tc[y][x] = acc;
+        }
+      }
+
+      for (int y = 0; y < BLOCK; y++) {
+        for (int x = 0; x < BLOCK; x++) {
+          C[bx + y][bx + x] = tc[y][x];
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
 
 uint64_t nanos() {
   struct timespec start;
@@ -19,6 +49,7 @@ uint64_t nanos() {
 }
 
 int main() {
+
   assert(N % BLOCK == 0);
   uint64_t start = nanos();
   for (int y = 0; y < N; y++) {
@@ -32,10 +63,11 @@ int main() {
   }
   uint64_t end = nanos();
 
-  printf("%lld %lld\n", start, end);
+  printf("naive approach:\n %lld %lld\n", start, end);
   double s = (end - start) * 1e-9;
   double gflop = (2.0 * N * N * N) * 1e-9;
   printf("%0.2f GFLOP/s\n", gflop / s);
+  pthread_t threads[THREADS];
 
   start = nanos();
   // transpose matrix in c
@@ -44,28 +76,14 @@ int main() {
       transposedBlock[i][j] = B[j][i];
     }
   }
-  for (int by = 0; by < N; by += BLOCK) {
-    for (int bx = 0; bx < N; bx += BLOCK) {
-      float tc[BLOCK][BLOCK];
-      for (int y = 0; y < BLOCK; y++) {
-        for (int x = 0; x < BLOCK; x++) {
-          float acc = 0;
-          // transposed dot product
-          for (int k = 0; k < N; k++) {
-            acc += A[by + y][k] * transposedBlock[bx + x][k];
-          }
-          tc[y][x] = acc;
-        }
-      }
-      for (int y = 0; y < BLOCK; y++) {
-        for (int x = 0; x < BLOCK; x++) {
-          C[bx + y][bx + x] = tc[y][x];
-        }
-      }
-    }
+  for (int i = 0; i < THREADS; i++) {
+    pthread_create(&threads[i], NULL, dot, (void *)(long)i);
+  }
+  for (int i = 0; i < THREADS; i++) {
+    pthread_join(threads[i], NULL);
   }
   end = nanos();
-  printf("%lld %lld\n", start, end);
+  printf("tiling approach: \n %lld %lld\n", start, end);
   s = (end - start) * 1e-9;
   gflop = (2.0 * N * N * N) * 1e-9;
   printf("%0.2f GFLOP/s\n", gflop / s);

@@ -1,6 +1,6 @@
 import time
 import numpy as np
-N = 1024
+N = 2048
 
 if __name__ == "__main__":
     # N^2 
