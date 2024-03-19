@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 #define N 2048
 #define BLOCK 4
 #define THREADS 4
@@ -13,6 +14,7 @@ float C[N][N];
 float transposedBlock[N][N];
 
 void *dot(void *arg) {
+
   int value = (int)(intptr_t)arg;
   int start = N / THREADS;
   for (int by = N / THREADS * value; by < N / THREADS * (value + 1);
@@ -22,20 +24,18 @@ void *dot(void *arg) {
       float tc[BLOCK][BLOCK];
       for (int y = 0; y < BLOCK; y++) {
         for (int x = 0; x < BLOCK; x++) {
-          float acc = 0;
-          // transposed dot product
+          __m256 acc = _mm256_setzero_ps();
           for (int k = 0; k < N; k++) {
-            acc += A[by + y][k] * transposedBlock[bx + x][k];
+            __m256 a = _mm256_load_ps(&A[by + y][k]);
+            __m256 b = _mm256_load_ps(&transposedBlock[bx + y][k]);
+            __m256 c = _mm256_mul_ps(a, b);
+            acc = _mm256_add_ps(acc,c); 
           }
-          tc[y][x] = acc;
+         _mm256_store_ps(&tc[y][x],acc);
         }
       }
 
-      for (int y = 0; y < BLOCK; y++) {
-        for (int x = 0; x < BLOCK; x++) {
-          C[bx + y][bx + x] = tc[y][x];
-        }
-      }
+      
     }
   }
 
@@ -51,6 +51,7 @@ uint64_t nanos() {
 int main() {
 
   assert(N % BLOCK == 0);
+  // naive implementation
   uint64_t start = nanos();
   for (int y = 0; y < N; y++) {
     for (int x = 0; x < N; x++) {
@@ -83,7 +84,7 @@ int main() {
     pthread_join(threads[i], NULL);
   }
   end = nanos();
-  printf("tiling approach: \n %lld %lld\n", start, end);
+  printf("tiling approach: \n %lld %lld \n", start, end);
   s = (end - start) * 1e-9;
   gflop = (2.0 * N * N * N) * 1e-9;
   printf("%0.2f GFLOP/s\n", gflop / s);
